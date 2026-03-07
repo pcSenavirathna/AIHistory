@@ -47,55 +47,55 @@ class TTSService:
         }
     
     def load_model(self):
-    """Load the trained TTS model from local path or Hugging Face"""
-    local_model_path = os.getenv("MODEL_PATH")
-    hf_repo_id = os.getenv("HF_REPO_ID")
-    hf_model_file = os.getenv("HF_MODEL_FILE", "AI_History_Teacher_System.pth")
-    hf_token = os.getenv("HF_TOKEN")
+        """Load the trained TTS model from local path or Hugging Face"""
+        local_model_path = os.getenv("MODEL_PATH")
+        hf_repo_id = os.getenv("HF_REPO_ID")
+        hf_model_file = os.getenv("HF_MODEL_FILE", "AI_History_Teacher_System.json")
+        hf_token = os.getenv("HF_TOKEN")
 
-    try:
-        if torch is None:
-            print("⚠ PyTorch is not installed. Will use gTTS fallback.")
-            return False
+        try:
+            if torch is None:
+                print("⚠ PyTorch is not installed. Will use gTTS fallback.")
+                return False
 
-        model_path = None
+            model_path = None
 
-        # 1. Try local path first
-        if local_model_path and os.path.exists(local_model_path):
-            model_path = local_model_path
-            print(f"Loading trained model from local path: {model_path}")
+            # 1. Try local path first
+            if local_model_path and os.path.exists(local_model_path):
+                model_path = local_model_path
+                print(f"Loading trained model from local path: {model_path}")
 
-        # 2. Try Hugging Face repo
-        elif hf_repo_id:
-            print(f"Downloading model from Hugging Face: {hf_repo_id}/{hf_model_file}")
-            model_path = hf_hub_download(
-                repo_id=hf_repo_id,
-                filename=hf_model_file,
-                token=hf_token
-            )
-            print(f"✓ Model downloaded to: {model_path}")
+            # 2. Try Hugging Face repo
+            elif hf_repo_id:
+                print(f"Downloading model from Hugging Face: {hf_repo_id}/{hf_model_file}")
+                model_path = hf_hub_download(
+                    repo_id=hf_repo_id,
+                    filename=hf_model_file,
+                    token=hf_token
+                )
+                print(f"✓ Model downloaded to: {model_path}")
 
-        # 3. Fallback to old local file path
-        else:
-            fallback_path = "app/models/AI_History_Teacher_System.pth"
-            if os.path.exists(fallback_path):
-                model_path = fallback_path
-                print(f"Loading trained model from fallback path: {model_path}")
+            # 3. Fallback to old local file path
+            else:
+                fallback_path = "app/models/AI_History_Teacher_System.pth"
+                if os.path.exists(fallback_path):
+                    model_path = fallback_path
+                    print(f"Loading trained model from fallback path: {model_path}")
 
-        if model_path and os.path.exists(model_path):
-            checkpoint = torch.load(model_path, map_location=self.device)
-            self.model = checkpoint
-            print("✓ Model loaded successfully")
-            return True
-        else:
-            print("⚠ Model file not found")
+            if model_path and os.path.exists(model_path):
+                checkpoint = torch.load(model_path, map_location=self.device)
+                self.model = checkpoint
+                print("✓ Model loaded successfully")
+                return True
+            else:
+                print("⚠ Model file not found")
+                print("Will use gTTS fallback for audio generation")
+                return False
+
+        except Exception as e:
+            print(f"Error loading model: {e}")
             print("Will use gTTS fallback for audio generation")
             return False
-
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        print("Will use gTTS fallback for audio generation")
-        return False
     
     def generate_audio(self, text: str, output_path: str = "temp_audio.wav", 
                       emotion: str = "", sound_effects: str = "") -> str:
