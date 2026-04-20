@@ -38,6 +38,11 @@ def health_check():
     return {"status": "ok"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "API is running"}
+
+
 def _is_port_available(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
