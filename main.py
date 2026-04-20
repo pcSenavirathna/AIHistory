@@ -58,7 +58,7 @@ def _find_available_port(host: str, starting_port: int, max_attempts: int = 20) 
 
 
 if __name__ == "__main__":
-    host = os.getenv("HOST", "127.0.0.1")
+    host = os.getenv("HOST", "0.0.0.0")
     requested_port = int(os.getenv("PORT", "8003"))
     reload_enabled = os.getenv("RELOAD", "false").lower() == "true"
 
