@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+newlastpoject.ipynb
+generated_output/
+chapter_audio_*.wav
+*.mp3
+*.wav
+models/lesson_multitask_lora/
+train_multitask_lora.py
