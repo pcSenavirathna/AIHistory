@@ -1,17 +1,12 @@
-# Define the content for requirements.txt
 fastapi
-uvicorn
+uvicorn[standard]
 pandas
 python-dotenv
-gtts
+gTTS
 nltk
 numpy
 requests
 soundfile
 pydub
-torch
-torchaudio
-transformers
-peft
-sentencepiece
-accelerate
+python-multipart
+
