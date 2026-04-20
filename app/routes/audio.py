@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 import os
 from app.services.tts_service import tts_service
-from local_main import generate_audio_for_selection
 from datetime import datetime, timedelta
 
 
@@ -86,6 +85,9 @@ async def get_chapter_audio(
         # Generate new audio
         print(f"📚 Requested audio for: grade={grade}, chapter={chapter_idx}, topic={topic_idx}")
 
+        # Import here to avoid loading heavy ML deps at app startup
+        from local_main import generate_audio_for_selection
+        
         audio_path = generate_audio_for_selection(
             grade=grade,
             chapter_idx=chapter_idx,
