@@ -122,3 +122,7 @@ class ChapterService:
         if 0 <= topic_idx < len(topics):
             return topics[topic_idx]
         return None
+
+
+# Initialize chapter service
+chapter_service = ChapterService()

@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import socket
-import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -12,11 +11,6 @@ load_dotenv()
 from app.routes.lessons import router as lessons_router
 from app.routes.chapters import router as chapters_router
 from app.routes.audio import router as audio_router
-
-if os.name == "nt":
-    # Windows Proactor loop can emit noisy ConnectionResetError traces when clients
-    # close ranged-media connections (common with browser audio players).
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 app = FastAPI(title="AI History Teacher API")
 
@@ -36,11 +30,6 @@ app.include_router(audio_router)
 @app.get("/")
 def health_check():
     return {"status": "ok"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "message": "API is running"}
 
 
 def _is_port_available(host: str, port: int) -> bool:
@@ -63,7 +52,7 @@ def _find_available_port(host: str, starting_port: int, max_attempts: int = 20) 
 
 
 if __name__ == "__main__":
-    host = os.getenv("HOST", "0.0.0.0")
+    host = os.getenv("HOST", "127.0.0.1")
     requested_port = int(os.getenv("PORT", "8003"))
     reload_enabled = os.getenv("RELOAD", "false").lower() == "true"
 

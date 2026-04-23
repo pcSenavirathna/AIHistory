@@ -22,7 +22,7 @@ GRADE11_CSV = os.path.join(DATA_DIR, "grade11_dataset.csv")
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "generated_output")
 MODEL_BASE_NAME = "google/flan-t5-small"
 MODEL_ADAPTER_DIR = os.path.join(PROJECT_DIR, "models", "lesson_multitask_lora")
-MODEL_PTH_PATH = os.path.join(MODEL_ADAPTER_DIR, "best_adapter.pth")
+BEST_MODEL_FILENAME = "best_model.pth"
 
 # Mandatory external endpoint for this project.
 API_URL = "https://25-26-j-438-ai-powered-lms-for-visu.vercel.app/api/tts"
@@ -41,36 +41,25 @@ class LessonMultitaskModel:
             return
 
         if not os.path.isdir(self.adapter_dir):
-            self._loaded = True
-            return
+            raise FileNotFoundError(f"Model adapter directory not found: {self.adapter_dir}")
+
+        best_model_path = os.path.join(self.adapter_dir, BEST_MODEL_FILENAME)
+        if not os.path.exists(best_model_path):
+            raise FileNotFoundError(
+                f"Required model file not found: {best_model_path}. "
+                "Audio generation cannot continue without best_model.pth."
+            )
 
         try:
             from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
             from peft import PeftModel
             import torch
-        except Exception:
-            self._loaded = True
-            return
+        except Exception as exc:
+            raise RuntimeError("Failed to import model libraries for inference.") from exc
 
-        print(f"[model] loading base model: {self.base_model}")
         tokenizer = AutoTokenizer.from_pretrained(self.base_model)
         base = AutoModelForSeq2SeqLM.from_pretrained(self.base_model)
-        print(f"[model] loading adapter directory: {self.adapter_dir}")
         model = PeftModel.from_pretrained(base, self.adapter_dir)
-
-        if os.path.isfile(MODEL_PTH_PATH):
-            print(f"[model] loading .pth checkpoint: {MODEL_PTH_PATH}")
-            adapter_state = torch.load(MODEL_PTH_PATH, map_location="cpu")
-            if isinstance(adapter_state, dict) and "adapter_state_dict" in adapter_state:
-                adapter_state = adapter_state["adapter_state_dict"]
-            if isinstance(adapter_state, dict):
-                missing_keys, unexpected_keys = model.load_state_dict(adapter_state, strict=False)
-                print(f"[model] .pth loaded: missing={len(missing_keys)} unexpected={len(unexpected_keys)}")
-            else:
-                print("[model] .pth file did not contain a state dict; skipping direct load")
-        else:
-            print(f"[model] .pth checkpoint not found: {MODEL_PTH_PATH}")
-
         model.eval()
 
         if torch.cuda.is_available():
@@ -106,6 +95,38 @@ class LessonMultitaskModel:
 
         return self._tokenizer.decode(out[0], skip_special_tokens=True).strip()
 
+    def _split_text_for_generation(self, text: str, max_chars: int = 700) -> List[str]:
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return []
+
+        sentences = nltk.sent_tokenize(clean_text)
+        if not sentences:
+            return [clean_text[:max_chars]]
+
+        chunks: List[str] = []
+        current_chunk: List[str] = []
+        current_len = 0
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            sentence_len = len(sentence) + 1
+            if current_chunk and (current_len + sentence_len) > max_chars:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = [sentence]
+                current_len = sentence_len
+            else:
+                current_chunk.append(sentence)
+                current_len += sentence_len
+
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        return chunks
+
     def generate_fields(self, chapter: str, topic: str, source_text: str) -> Dict[str, str]:
         source_text = (source_text or "").strip()
         prompt_context = (
@@ -114,10 +135,29 @@ class LessonMultitaskModel:
             f"source: {source_text[:900]}"
         )
 
-        narrative = self._infer(
-            f"task: narrate\n{prompt_context}\n"
-            "instruction: create a clear, friendly narration for visually impaired students."
-        )
+        chunks = self._split_text_for_generation(source_text, max_chars=700)
+        generated_chunks: List[str] = []
+        for idx, chunk in enumerate(chunks):
+            chunk_prompt = (
+                f"chapter: {chapter}\n"
+                f"topic: {topic}\n"
+                f"part: {idx + 1}/{len(chunks)}\n"
+                f"source: {chunk}"
+            )
+            generated_chunk = self._infer(
+                f"task: narrate\n{chunk_prompt}\n"
+                "instruction: rewrite this part in clear, friendly narration for visually impaired students. Keep key facts from this part."
+                ,
+                max_new_tokens=256,
+            )
+            if generated_chunk:
+                generated_chunks.append(generated_chunk)
+
+        narrative = " ".join(generated_chunks).strip()
+        # Guardrail: if model output is too short, use original text instead of truncating lesson audio.
+        if not narrative or len(narrative) < max(120, int(len(source_text) * 0.65)):
+            narrative = source_text
+
         emotion = self._infer(
             f"task: emotion\n{prompt_context}\n"
             "instruction: output one emotion label only."
@@ -320,6 +360,22 @@ def maybe_resample_effect(effect: AudioSegment, sample_rate: int) -> AudioSegmen
     if effect.frame_rate != sample_rate:
         return effect.set_frame_rate(sample_rate)
     return effect
+
+
+def _extract_valid_sound_effects(raw_effects: str, sounds_dir: str) -> List[str]:
+    raw_items = [item.strip() for item in str(raw_effects or "").split(",") if item.strip()]
+    if not raw_items:
+        return []
+
+    available_effects = set()
+    if os.path.isdir(sounds_dir):
+        for filename in os.listdir(sounds_dir):
+            base_name, ext = os.path.splitext(filename)
+            if ext.lower() in {".mp3", ".wav", ".ogg"}:
+                available_effects.add(base_name.strip())
+
+    valid_effects = [item for item in raw_items if item in available_effects]
+    return list(dict.fromkeys(valid_effects))
 
 
 def build_audio(
@@ -554,18 +610,12 @@ def generate_audio_for_selection(
     lesson_data = get_lesson_data_by_indices(grade, chapter_idx, topic_idx).copy()
 
     if use_model:
-        print(f"[model] using model name: {MODEL_BASE_NAME}")
-        print(f"[model] using checkpoint file: {MODEL_PTH_PATH}")
-        print(
-            f"[model] preparing lesson model for audio generation: grade={grade}, chapter={chapter_idx}, topic={topic_idx}"
-        )
         topic_name = str(lesson_data.get("Grade/Topic", "")).strip()
         chapter_name = str(lesson_data.get("chapter", "")).strip()
-        source_text = str(lesson_data.get("original_text") or lesson_data.get("simplified_text") or "")
+        source_text = str(lesson_data.get("simplified_text") or lesson_data.get("original_text") or "")
 
         multitask_model = LessonMultitaskModel(adapter_dir=model_adapter_dir)
         if multitask_model.is_ready:
-            print("[model] lesson model is ready; generating narrative, emotion, and sound effects")
             predicted = multitask_model.generate_fields(
                 chapter=chapter_name,
                 topic=topic_name,
@@ -574,15 +624,13 @@ def generate_audio_for_selection(
 
             if predicted.get("narrative_text"):
                 lesson_data["simplified_text"] = predicted["narrative_text"]
-            if predicted.get("emotion"):
+            predicted_emotion = str(predicted.get("emotion", "")).strip()
+            if predicted_emotion and len(predicted_emotion) <= 40 and "," not in predicted_emotion:
                 lesson_data["emotion"] = predicted["emotion"]
-            if predicted.get("sound_effects"):
-                lesson_data["sound_effects"] = predicted["sound_effects"]
-                lesson_data["sound_effects_list"] = [
-                    item.strip()
-                    for item in str(predicted["sound_effects"]).split(",")
-                    if item.strip()
-                ]
+            predicted_effects = _extract_valid_sound_effects(predicted.get("sound_effects", ""), SOUNDS_DIR)
+            if predicted_effects:
+                lesson_data["sound_effects"] = ",".join(predicted_effects)
+                lesson_data["sound_effects_list"] = predicted_effects
 
     tts_model = ApiTTSWrapper(api_url)
     sound_mixer = SoundEffectsMixer(SOUNDS_DIR)
